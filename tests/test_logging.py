@@ -3,8 +3,9 @@ from __future__ import division
 import logging
 import threading
 
-import av.error
 import av.logging
+import av.utils
+from av import AVError
 
 from .common import TestCase
 
@@ -37,7 +38,9 @@ class TestLogging(TestCase):
             thread.start()
             thread.join()
 
-        self.assertIn((av.logging.INFO, 'test', 'main'), logs)
+        self.assertEqual(logs, [
+            (av.logging.INFO, 'test', 'main'),
+        ])
 
     def test_global_captures(self):
 
@@ -47,8 +50,10 @@ class TestLogging(TestCase):
             thread.start()
             thread.join()
 
-        self.assertIn((av.logging.INFO, 'test', 'main'), logs)
-        self.assertIn((av.logging.INFO, 'test', 'thread'), logs)
+        self.assertEqual(logs, [
+            (av.logging.INFO, 'test', 'main'),
+            (av.logging.INFO, 'test', 'thread'),
+        ])
 
     def test_repeats(self):
 
@@ -76,8 +81,8 @@ class TestLogging(TestCase):
         log = (av.logging.ERROR, 'test', 'This is a test.')
         av.logging.log(*log)
         try:
-            av.error.err_check(-1)
-        except OSError as e:
+            av.utils.err_check(-1)
+        except AVError as e:
             self.assertEqual(e.log, log)
         else:
             self.fail()

@@ -1,7 +1,7 @@
 cimport libav as lib
 
-from av.enum cimport define_enum
 from av.utils cimport flag_in_bitfield
+from av.enums cimport define_enum
 
 
 cdef object _cinit_sentinel = object()
@@ -15,7 +15,7 @@ cdef Option wrap_option(tuple choices, const lib.AVOption *ptr):
     return obj
 
 
-OptionType = define_enum('OptionType', __name__, (
+OptionType = define_enum('OptionType', (
     ('FLAGS', lib.AV_OPT_TYPE_FLAGS),
     ('INT', lib.AV_OPT_TYPE_INT),
     ('INT64', lib.AV_OPT_TYPE_INT64),
@@ -48,7 +48,7 @@ cdef tuple _INT_TYPES = (
     lib.AV_OPT_TYPE_BOOL,
 )
 
-OptionFlags = define_enum('OptionFlags', __name__, (
+OptionFlags = define_enum('OptionFlags', (
     ('ENCODING_PARAM', lib.AV_OPT_FLAG_ENCODING_PARAM),
     ('DECODING_PARAM', lib.AV_OPT_FLAG_DECODING_PARAM),
     ('AUDIO_PARAM', lib.AV_OPT_FLAG_AUDIO_PARAM),

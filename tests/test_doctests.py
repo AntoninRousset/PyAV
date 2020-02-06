@@ -1,7 +1,7 @@
-from unittest import TestCase
 import doctest
 import pkgutil
 import re
+from unittest import TestCase
 
 import av
 
@@ -15,7 +15,6 @@ except NameError:
 
 
 def fix_doctests(suite):
-
     for case in suite._tests:
 
         # Add some more flags.
@@ -27,7 +26,6 @@ def fix_doctests(suite):
         )
 
         case._dt_test.globs['av'] = av
-        case._dt_test.globs['video_path'] = av.datasets.curated('pexels/time-lapse-video-of-night-sky-857195.mp4')
 
         for example in case._dt_test.examples:
 
@@ -40,7 +38,6 @@ def register_doctests(mod):
 
     if isinstance(mod, basestring):
         mod = __import__(mod, fromlist=[''])
-
     try:
         suite = doctest.DocTestSuite(mod)
     except ValueError:

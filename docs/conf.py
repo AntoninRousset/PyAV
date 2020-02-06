@@ -12,18 +12,13 @@ from __future__ import print_function
 # All configuration values have a default; values that are commented out
 # serve to show the default.
 
-from docutils import nodes
 import logging
-import math
+import sys
 import os
 import re
 import sys
-import sys
-import xml.etree.ElementTree as etree
 
 import sphinx
-from sphinx import addnodes
-from sphinx.util.docutils import SphinxDirective
 
 
 logging.basicConfig()
@@ -44,6 +39,13 @@ sys.path.insert(0, os.path.abspath('..'))
 # If your documentation needs a minimal Sphinx version, state it here.
 #needs_sphinx = '1.0'
 
+try:
+    import sphinxcontrib.doxylink
+    has_doxylink = True
+except ImportError:
+    print("WARNING: Please install sphinxcontrib-doxylink for links to FFmpeg's docs.")
+    has_doxylink = False
+
 # Add any Sphinx extension module names here, as strings. They can be extensions
 # coming with Sphinx (named 'sphinx.ext.*') or your custom ones.
 extensions = [
@@ -54,10 +56,9 @@ extensions = [
     'sphinx.ext.viewcode',
     'sphinx.ext.extlinks',
     'sphinx.ext.doctest',
-
-    # We used to use doxylink, but we found its caching behaviour annoying, and
-    # so made a minimally viable version of our own.
 ]
+if has_doxylink:
+    extensions.append('sphinxcontrib.doxylink')
 
 
 # Add any paths that contain templates here, relative to this directory.
@@ -202,8 +203,8 @@ doctest_global_setup = '''
 import errno
 import os
 
+from av.testdata import fate_suite
 import av
-from av.datasets import fate, fate as fate_suite, curated
 
 from tests import common
 from tests.common import sandboxed as _sandboxed
@@ -220,8 +221,6 @@ except OSError as e:
     if e.errno != errno.EEXIST:
         raise
 os.chdir(here)
-
-video_path = curated('pexels/time-lapse-video-of-night-sky-857195.mp4')
 
 '''
 
@@ -243,253 +242,23 @@ extlinks = {
 }
 
 intersphinx_mapping = {
-    'https://docs.python.org/3': None,
+    'http://docs.python.org/': None,
 }
 
 autodoc_member_order = 'bysource'
-autodoc_default_options = {
-    'undoc-members': True,
-    'show-inheritance': True,
-}
+autodoc_default_flags = ['undoc-members', 'show-inheritance']
 
 
 todo_include_todos = True
 
 
-class PyInclude(SphinxDirective):
-
-    has_content = True
-
-    def run(self):
-
-
-        source = '\n'.join(self.content)
-        output = []
-        def write(*content, sep=' ', end='\n'):
-            output.append(sep.join(map(str, content)) + end)
-
-        namespace = dict(write=write)
-        exec(compile(source, '<docs>', 'exec'), namespace, namespace)
-
-        output = ''.join(output).splitlines()
-        self.state_machine.insert_input(output, 'blah')
-
-        return [] #[nodes.literal('hello', repr(content))]
-
-
-def load_entrypoint(name):
-
-    parts = name.split(':')
-    if len(parts) == 1:
-        parts = name.rsplit('.', 1)
-    mod_name, attrs = parts
-
-    attrs = attrs.split('.')
-    try:
-        obj = __import__(mod_name, fromlist=['.'])
-    except ImportError as e:
-        print('Error while importing.', (name, mod_name, attrs, e))
-        raise
-    for attr in attrs:
-        obj = getattr(obj, attr)
-    return obj
-
-class EnumTable(SphinxDirective):
-
-    required_arguments = 1
-    option_spec = {
-        'class': lambda x: x,
-    }
-
-    def run(self):
-
-        cls_ep = self.options.get('class')
-        cls = load_entrypoint(cls_ep) if cls_ep else None
-
-        enum = load_entrypoint(self.arguments[0])
-
-        properties = {}
-
-        if cls is not None:
-            for name, value in vars(cls).items():
-                if isinstance(value, property):
-                    try:
-                        item = value._enum_item
-                    except AttributeError:
-                        pass
-                    else:
-                        if isinstance(item, enum):
-                            properties[item] = name
-
-        colwidths = [15, 15, 5, 65] if cls else [15, 5, 75]
-        ncols = len(colwidths)
-
-        table = nodes.table()
-
-        tgroup = nodes.tgroup(cols=ncols)
-        table += tgroup
-
-        for width in colwidths:
-            tgroup += nodes.colspec(colwidth=width)
-
-        thead = nodes.thead()
-        tgroup += thead
-
-        tbody = nodes.tbody()
-        tgroup += tbody
-
-        def makerow(*texts):
-            row = nodes.row()
-            for text in texts:
-                if text is None:
-                    continue
-                row += nodes.entry('', nodes.paragraph('', str(text)))
-            return row
-
-        thead += makerow(
-            '{} Attribute'.format(cls.__name__) if cls else None,
-            '{} Name'.format(enum.__name__),
-            'Flag Value',
-            'Meaning in FFmpeg',
-        )
-
-        seen = set()
-
-        for name, item in enum._by_name.items():
-
-            if name.lower() in seen:
-                continue
-            seen.add(name.lower())
-
-            try:
-                attr = properties[item]
-            except KeyError:
-                if cls:
-                    continue
-                attr = None
-
-            value = '0x{:X}'.format(item.value)
-
-            doc = item.__doc__ or '-'
-
-            tbody += makerow(
-                attr,
-                name,
-                value,
-                doc,
-            )
-
-        return [table]
-
-
-
-
 doxylink = {}
-ffmpeg_tagfile = os.path.abspath(os.path.join(__file__, '..', '_build', 'doxygen', 'tagfile.xml'))
-if not os.path.exists(ffmpeg_tagfile):
-    print("ERROR: Missing FFmpeg tagfile.")
-    exit(1)
-doxylink['ffmpeg'] = (ffmpeg_tagfile, 'https://ffmpeg.org/doxygen/trunk/')
-
-
-def doxylink_create_handler(app, file_name, url_base):
-
-    print("Finding all names in Doxygen tagfile", file_name)
-
-    doc = etree.parse(file_name)
-    root = doc.getroot()
-
-    parent_map = {}  # ElementTree doesn't five us access to parents.
-    urls = {}
-
-    for node in root.findall('.//name/..'):
-
-        for child in node:
-            parent_map[child] = node
-
-        kind = node.attrib['kind']
-        if kind not in ('function', 'struct', 'variable'):
-            continue
-
-        name = node.find('name').text
-
-        if kind not in ('function', ):
-            parent = parent_map.get(node)
-            parent_name = parent.find('name') if parent else None
-            if parent_name is not None:
-                name = '{}.{}'.format(parent_name.text, name)
-
-        filenode = node.find('filename')
-        if filenode is not None:
-            url = filenode.text
-        else:
-            url = '{}#{}'.format(
-                node.find('anchorfile').text,
-                node.find('anchor').text,
-            )
-
-        urls.setdefault(kind, {})[name] = url
-
-    def get_url(name):
-        # These are all the kinds that seem to exist.
-        for kind in (
-            'function',
-            'struct',
-            'variable', # These are struct members.
-            # 'class',
-            # 'define',
-            # 'enumeration',
-            # 'enumvalue',
-            # 'file',
-            # 'group',
-            # 'page',
-            # 'typedef',
-            # 'union',
-        ):
-            try:
-                return urls[kind][name]
-            except KeyError:
-                pass
-
-
-    def _doxylink_handler(name, rawtext, text, lineno, inliner, options={}, content=[]):
-
-        m = re.match(r'^(.+?)(?:<(.+?)>)?$', text)
-        title, name = m.groups()
-        name = name or title
-
-        url = get_url(name)
-        if not url:
-            print("ERROR: Could not find", name)
-            exit(1)
-
-        node = addnodes.literal_strong(title, title)
-        if url:
-            url = url_base + url
-            node = nodes.reference(
-                '', '', node, refuri=url
-            )
-
-        return [node], []
-
-    return _doxylink_handler
-
-
+ffmpeg_tagfile = os.path.abspath(os.path.join(__file__, '..', '..', 'tmp', 'tagfile.xml'))
+if os.path.exists(ffmpeg_tagfile):
+    doxylink['ffmpeg'] = (ffmpeg_tagfile, 'https://ffmpeg.org/doxygen/trunk/')
+else:
+    print("WARNING: Please build FFmpeg's docs with: GENERATE_TAGFILE = %s" % ffmpeg_tagfile)
 
 
 def setup(app):
-
     app.add_stylesheet('custom.css')
-
-    app.add_directive('flagtable', EnumTable)
-    app.add_directive('enumtable', EnumTable)
-    app.add_directive('pyinclude', PyInclude)
-
-    skip = os.environ.get('PYAV_SKIP_DOXYLINK')
-    for role, (filename, url_base) in doxylink.items():
-        if skip:
-            app.add_role(role, lambda *args: ([], []))
-        else:
-            app.add_role(role, doxylink_create_handler(app, filename, url_base))
-
-

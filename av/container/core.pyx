@@ -1,23 +1,19 @@
 from libc.stdint cimport int64_t
 from libc.stdlib cimport malloc, free
-from cython.operator cimport dereference
 
 import sys
-import time
 
 cimport libav as lib
 
-from av.container.core cimport timeout_info
 from av.container.input cimport InputContainer
 from av.container.output cimport OutputContainer
 from av.container.pyio cimport pyio_read, pyio_write, pyio_seek
-from av.enum cimport define_enum
-from av.error cimport err_check, stash_exception
 from av.format cimport build_container_format
-from av.utils cimport dict_to_avdict
+from av.utils cimport err_check, dict_to_avdict
 
-from av.dictionary import Dictionary
-from av.logging import Capture as LogCapture
+from av.dictionary import Dictionary  # not cimport
+from av.logging import Capture as LogCapture  # not cimport
+from av.utils import AVError  # not cimport
 
 try:
     from os import fsencode
@@ -34,83 +30,12 @@ ctypedef int64_t (*seek_func_t)(void *opaque, int64_t offset, int whence) nogil
 cdef object _cinit_sentinel = object()
 
 
-# We want to use the monotonic clock if it is availible.
-cdef object clock = getattr(time, 'monotonic', time.time)
-
-cdef int interrupt_cb (void *p) nogil:
-
-    cdef timeout_info info = dereference(<timeout_info*> p)
-    if info.timeout < 0:  # timeout < 0 means no timeout
-        return 0
-
-    cdef double current_time
-    with gil:
-
-        current_time = clock()
-
-        # Check if the clock has been changed.
-        if current_time < info.start_time:
-            # Raise this when we get back to Python.
-            stash_exception((RuntimeError, RuntimeError("Clock has been changed to before timeout start"), None))
-            return 1
-
-    if current_time > info.start_time + info.timeout:
-        return 1
-
-    return 0
-
-
-Flags = define_enum('Flags', __name__, (
-    ('GENPTS', lib.AVFMT_FLAG_GENPTS,
-        "Generate missing pts even if it requires parsing future frames."),
-    ('IGNIDX', lib.AVFMT_FLAG_IGNIDX,
-        "Ignore index."),
-    ('NONBLOCK', lib.AVFMT_FLAG_NONBLOCK,
-        "Do not block when reading packets from input."),
-    ('IGNDTS', lib.AVFMT_FLAG_IGNDTS,
-        "Ignore DTS on frames that contain both DTS & PTS."),
-    ('NOFILLIN', lib.AVFMT_FLAG_NOFILLIN,
-        "Do not infer any values from other values, just return what is stored in the container."),
-    ('NOPARSE', lib.AVFMT_FLAG_NOPARSE,
-        """Do not use AVParsers, you also must set AVFMT_FLAG_NOFILLIN as the fillin code works on frames and no parsing -> no frames.
-
-        Also seeking to frames can not work if parsing to find frame boundaries has been disabled."""),
-    ('NOBUFFER', lib.AVFMT_FLAG_NOBUFFER,
-        "Do not buffer frames when possible."),
-    ('CUSTOM_IO', lib.AVFMT_FLAG_CUSTOM_IO,
-        "The caller has supplied a custom AVIOContext, don't avio_close() it."),
-    ('DISCARD_CORRUPT', lib.AVFMT_FLAG_DISCARD_CORRUPT,
-        "Discard frames marked corrupted."),
-    ('FLUSH_PACKETS', lib.AVFMT_FLAG_FLUSH_PACKETS,
-        "Flush the AVIOContext every packet."),
-    ('BITEXACT', lib.AVFMT_FLAG_BITEXACT,
-        """When muxing, try to avoid writing any random/volatile data to the output.
-
-        This includes any random IDs, real-time timestamps/dates, muxer version, etc.
-        This flag is mainly intended for testing."""),
-    ('MP4A_LATM', lib.AVFMT_FLAG_MP4A_LATM,
-        "Enable RTP MP4A-LATM payload"),
-    ('SORT_DTS', lib.AVFMT_FLAG_SORT_DTS,
-        "Try to interleave outputted packets by dts (using this flag can slow demuxing down)."),
-    ('PRIV_OPT', lib.AVFMT_FLAG_PRIV_OPT,
-        "Enable use of private options by delaying codec open (this could be made default once all code is converted)."),
-    ('KEEP_SIDE_DATA', lib.AVFMT_FLAG_KEEP_SIDE_DATA,
-        "Deprecated, does nothing."),
-    ('FAST_SEEK', lib.AVFMT_FLAG_FAST_SEEK,
-        "Enable fast, but inaccurate seeks for some formats."),
-    ('SHORTEST', lib.AVFMT_FLAG_SHORTEST,
-        "Stop muxing when the shortest stream stops."),
-    ('AUTO_BSF', lib.AVFMT_FLAG_AUTO_BSF,
-        "Add bitstream filters as requested by the muxer."),
-), is_flags=True)
-
-
 cdef class Container(object):
 
     def __cinit__(self, sentinel, file_, format_name, options,
                   container_options, stream_options,
                   metadata_encoding, metadata_errors,
-                  buffer_size, open_timeout, read_timeout):
+                  buffer_size):
 
         if sentinel is not _cinit_sentinel:
             raise RuntimeError('cannot construct base Container')
@@ -133,9 +58,6 @@ cdef class Container(object):
 
         self.metadata_encoding = metadata_encoding
         self.metadata_errors = metadata_errors
-
-        self.open_timeout = open_timeout
-        self.read_timeout = read_timeout
 
         if format_name is not None:
             self.format = ContainerFormat(format_name)
@@ -167,11 +89,6 @@ cdef class Container(object):
         else:
             # We need the context before we open the input AND setup Python IO.
             self.ptr = lib.avformat_alloc_context()
-
-            # Setup interrupt callback
-            if self.open_timeout is not None or self.read_timeout is not None:
-                self.ptr.interrupt_callback.callback = interrupt_cb
-                self.ptr.interrupt_callback.opaque = &self.interrupt_callback_info
 
         self.ptr.flags |= lib.AVFMT_FLAG_GENPTS
         self.ptr.max_analyze_duration = 10000000
@@ -221,9 +138,6 @@ cdef class Container(object):
             ifmt = self.format.iptr if self.format else NULL
 
             c_options = Dictionary(self.options, self.container_options)
-
-            self.set_timeout(self.open_timeout)
-            self.start_timeout()
             with nogil:
                 res = lib.avformat_open_input(
                     &self.ptr,
@@ -231,7 +145,6 @@ cdef class Container(object):
                     ifmt,
                     &c_options.ptr
                 )
-            self.set_timeout(None)
             self.err_check(res)
             self.input_was_opened = True
 
@@ -271,52 +184,12 @@ cdef class Container(object):
             lib.av_dump_format(self.ptr, 0, "", isinstance(self, OutputContainer))
         return ''.join(log[2] for log in logs)
 
-    cdef set_timeout(self, timeout):
-        if timeout is None:
-            self.interrupt_callback_info.timeout = -1.0
-        else:
-            self.interrupt_callback_info.timeout = timeout
-
-    cdef start_timeout(self):
-        self.interrupt_callback_info.start_time = clock()
-
-    def _get_flags(self):
-        return self.ptr.flags
-
-    def _set_flags(self, value):
-        self.ptr.flags = value
-
-    flags = Flags.property(
-        _get_flags,
-        _set_flags,
-        """Flags property of :class:`.Flags`"""
-    )
-
-    gen_pts = flags.flag_property('GENPTS')
-    ign_idx = flags.flag_property('IGNIDX')
-    non_block = flags.flag_property('NONBLOCK')
-    ign_dts = flags.flag_property('IGNDTS')
-    no_fill_in = flags.flag_property('NOFILLIN')
-    no_parse = flags.flag_property('NOPARSE')
-    no_buffer = flags.flag_property('NOBUFFER')
-    custom_io = flags.flag_property('CUSTOM_IO')
-    discard_corrupt = flags.flag_property('DISCARD_CORRUPT')
-    flush_packets = flags.flag_property('FLUSH_PACKETS')
-    bit_exact = flags.flag_property('BITEXACT')
-    mp4a_latm = flags.flag_property('MP4A_LATM')
-    sort_dts = flags.flag_property('SORT_DTS')
-    priv_opt = flags.flag_property('PRIV_OPT')
-    keep_side_data = flags.flag_property('KEEP_SIDE_DATA')
-    fast_seek = flags.flag_property('FAST_SEEK')
-    shortest = flags.flag_property('SHORTEST')
-    auto_bsf = flags.flag_property('AUTO_BSF')
-
 
 def open(file, mode=None, format=None, options=None,
          container_options=None, stream_options=None,
          metadata_encoding=None, metadata_errors='strict',
-         buffer_size=32768, timeout=None):
-    """open(file, mode='r', **kwargs)
+         buffer_size=32768):
+    """open(file, mode='r', format=None, options=None, metadata_encoding=None, metadata_errors='strict')
 
     Main entrypoint to opening files/streams.
 
@@ -333,17 +206,12 @@ def open(file, mode=None, format=None, options=None,
         ``str.encode`` parameter. Defaults to strict.
     :param int buffer_size: Size of buffer for Python input/output operations in bytes.
         Honored only when ``file`` is a file-like object. Defaults to 32768 (32k).
-    :param timeout: How many seconds to wait for data before giving up, as a float, or a
-        :ref:`(open timeout, read timeout) <timeouts>` tuple.
-    :type timeout: float or tuple
 
     For devices (via ``libavdevice``), pass the name of the device to ``format``,
     e.g.::
 
         >>> # Open webcam on OS X.
         >>> av.open(format='avfoundation', file='0') # doctest: +SKIP
-
-    .. seealso:: :ref:`garbage_collection`
 
     More information on using input and output devices is available on the
     `FFmpeg website <https://www.ffmpeg.org/ffmpeg-devices.html>`_.
@@ -354,19 +222,12 @@ def open(file, mode=None, format=None, options=None,
     if mode is None:
         mode = 'r'
 
-    if isinstance(timeout, tuple):
-        open_timeout = timeout[0]
-        read_timeout = timeout[1]
-    else:
-        open_timeout = timeout
-        read_timeout = timeout
-
     if mode.startswith('r'):
         return InputContainer(
             _cinit_sentinel, file, format, options,
             container_options, stream_options,
             metadata_encoding, metadata_errors,
-            buffer_size, open_timeout, read_timeout
+            buffer_size
         )
     if mode.startswith('w'):
         if stream_options:
@@ -375,6 +236,6 @@ def open(file, mode=None, format=None, options=None,
             _cinit_sentinel, file, format, options,
             container_options, stream_options,
             metadata_encoding, metadata_errors,
-            buffer_size, open_timeout, read_timeout
+            buffer_size
         )
     raise ValueError("mode must be 'r' or 'w'; got %r" % mode)

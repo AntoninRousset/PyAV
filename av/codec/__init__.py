@@ -1,3 +1,2 @@
-from .codec import (Capabilities, Codec, Properties, codec_descriptor,
-                    codecs_available)
-from .context import CodecContext
+from .codec import Codec, codecs_available, codec_descriptor
+from .context import CodecContext, HWDeviceContext, HWFramesContext

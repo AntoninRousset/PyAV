@@ -8,6 +8,30 @@ from av.packet cimport Packet
 from av.bytesource cimport ByteSource
 
 
+cdef class HWDeviceContext(object):
+
+    cdef lib.AVBufferRef *ptr
+
+    # Whether the AVBufferRef should be de-allocated upon destruction.
+    cdef bint allocated
+
+    cdef _init(self, lib.AVBufferRef *ptr)
+
+
+cdef class HWFramesContext(object):
+
+    cdef lib.AVBufferRef *ptr
+
+    # Whether the AVBufferRef should be de-allocated upon destruction.
+    cdef bint allocated
+
+    cdef _init(self, lib.AVBufferRef *ptr)
+
+    cdef lib.AVHWFramesContext* _get_hwframes_ctx(self)
+
+    cpdef init(self)
+
+
 cdef class CodecContext(object):
 
     cdef lib.AVCodecContext *ptr
@@ -21,6 +45,10 @@ cdef class CodecContext(object):
     cdef int stream_index
 
     cdef lib.AVCodecParserContext *parser
+    cdef unsigned char *parse_buffer
+    cdef size_t parse_buffer_size
+    cdef size_t parse_buffer_max_size
+    cdef size_t parse_pos
 
     # To hold a reference to passed extradata.
     cdef ByteSource extradata_source
@@ -44,6 +72,7 @@ cdef class CodecContext(object):
     # Used by both transcode APIs to setup user-land objects.
     # TODO: Remove the `Packet` from `_setup_decoded_frame` (because flushing
     # packets are bogus). It should take all info it needs from the context and/or stream.
+    cdef _prepare_hwframes_for_encode(self, Frame frame)
     cdef _prepare_frames_for_encode(self, Frame frame)
     cdef _setup_encoded_packet(self, Packet)
     cdef _setup_decoded_frame(self, Frame, Packet)
@@ -65,4 +94,9 @@ cdef class CodecContext(object):
     cdef Frame _alloc_next_frame(self)
 
 
-cdef CodecContext wrap_codec_context(lib.AVCodecContext*, const lib.AVCodec*, bint allocated)
+cdef HWDeviceContext wrap_hwdevice_context(lib.AVBufferRef *hwd_ctx, bint allocated)
+cdef HWFramesContext wrap_hwframes_context(lib.AVBufferRef *hwf_ctx,
+                                           const lib.AVBufferRef *hwd_ctx,
+                                           bint allocated)
+cdef CodecContext wrap_codec_context(lib.AVCodecContext*, const lib.AVCodec*,
+                                     bint allocated)

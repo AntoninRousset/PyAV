@@ -3,9 +3,9 @@
 
 **PyAV** is a Pythonic binding for FFmpeg_. We aim to provide all of the power and control of the underlying library, but manage the gritty details as much as possible.
 
-PyAV is for direct and precise access to your media via containers, streams, packets, codecs, and frames. It exposes a few transformations of that data, and helps you get your data to/from other packages (e.g. Numpy and Pillow).
+PyAV is for direct and precise access to your media via containers, streams, packets, codecs, and frames. It exposes a few transformations of that data, and helps you get your data to/from other packages (e.g. Numpy and Pillow). 
 
-This power does come with some responsibility as working with media is horrendously complicated and PyAV can't abstract it away or make all the best decisions for you. If the ``ffmpeg`` command does the job without you bending over backwards, PyAV is likely going to be more of a hindrance than a help.
+This power does come with some responsibility as working with media is horrendously complicated and PyAV can't abstract it away or make all the best decisions for you. If the `ffmpeg` command does the job without you bending over backwards, PyAV is likely going to be more of a hindrance than a help.
 
 But where you can't work without it, PyAV is a critical tool.
 
@@ -37,7 +37,7 @@ Currently we provide:
 
 - and a few more utilities.
 
-.. _FFmpeg: https://ffmpeg.org/
+.. _FFmpeg: http://ffmpeg.org
 
 
 Basic Demo
@@ -62,10 +62,10 @@ Overview
 --------
 
 .. toctree::
-    :glob:
     :maxdepth: 2
 
-    overview/*
+    about
+    installation
 
 
 Cookbook
@@ -92,10 +92,13 @@ Development
 -----------
 
 .. toctree::
-    :glob:
     :maxdepth: 1
 
-    development/*
+    hacking
+    includes
+    changelog
+    contributors
+    license
 
 
 Indices and Tables

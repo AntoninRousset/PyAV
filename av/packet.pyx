@@ -1,8 +1,7 @@
 cimport libav as lib
 
 from av.bytesource cimport bytesource
-from av.error cimport err_check
-from av.utils cimport avrational_to_fraction, to_avrational
+from av.utils cimport avrational_to_fraction, to_avrational, err_check
 
 from av import deprecation
 

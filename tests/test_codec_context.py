@@ -1,10 +1,10 @@
+import os
 from fractions import Fraction
 from unittest import SkipTest
-import os
 
-from av import AudioResampler, Codec, Packet
-from av.codec.codec import UnknownCodecError
 import av
+from av import AudioResampler, AVError, Codec, Packet
+from av.codec.codec import UnknownCodecError
 
 from .common import TestCase, fate_suite
 
@@ -29,7 +29,9 @@ def iter_raw_frames(path, packet_sizes, ctx):
         while True:
             try:
                 frames = ctx.decode(None)
-            except EOFError:
+            except AVError as e:
+                if e.errno != 541478725:  # EOF
+                    raise
                 break
             for frame in frames:
                 yield frame
@@ -42,37 +44,6 @@ class TestCodecContext(TestCase):
     def test_skip_frame_default(self):
         ctx = Codec('png', 'w').create()
         self.assertEqual(ctx.skip_frame.name, 'DEFAULT')
-
-    def test_parse(self):
-
-        # This one parses into a single packet.
-        self._assert_parse('mpeg4', fate_suite('h264/interlaced_crop.mp4'))
-
-        # This one parses into many small packets.
-        self._assert_parse('mpeg2video', fate_suite('mpeg2/mpeg2_field_encoding.ts'))
-
-    def _assert_parse(self, codec_name, path):
-
-        fh = av.open(path)
-        packets = []
-        for packet in fh.demux(video=0):
-            packets.append(packet)
-
-        full_source = b''.join(p.to_bytes() for p in packets)
-
-        for size in 1024, 8192, 65535:
-
-            ctx = Codec(codec_name).create()
-            packets = []
-
-            for i in range(0, len(full_source), size):
-                block = full_source[i:i + size]
-                packets.extend(ctx.parse(block))
-            packets.extend(ctx.parse())
-
-            parsed_source = b''.join(p.to_bytes() for p in packets)
-            self.assertEqual(len(parsed_source), len(full_source))
-            self.assertEqual(full_source, parsed_source)
 
 
 class TestEncoding(TestCase):

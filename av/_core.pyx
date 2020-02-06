@@ -23,7 +23,7 @@ cdef decode_version(v):
     cdef int micro = (v) & 0xff
     return (major, minor, micro)
 
-library_meta = {
+versions = {
     'libavutil': dict(
         version=decode_version(lib.avutil_version()),
         configuration=lib.avutil_configuration(),
@@ -60,5 +60,3 @@ library_meta = {
         license=lib.swresample_license()
     ),
 }
-
-library_versions = {name: meta['version'] for name, meta in library_meta.items()}

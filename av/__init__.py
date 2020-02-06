@@ -6,7 +6,7 @@ if os.name == 'nt':
 
 # MUST import the core before anything else in order to initalize the underlying
 # library that is being wrapped.
-from av._core import time_base, pyav_version as __version__, library_versions
+from av._core import time_base, pyav_version as __version__
 
 # Capture logging (by importing it).
 from av import logging
@@ -18,13 +18,10 @@ from av.audio.frame import AudioFrame
 from av.audio.layout import AudioLayout
 from av.audio.resampler import AudioResampler
 from av.codec.codec import Codec, codecs_available
-from av.codec.context import CodecContext
+from av.codec.context import CodecContext, HWDeviceContext, HWFramesContext
 from av.container import open
 from av.format import ContainerFormat, formats_available
 from av.packet import Packet
-from av.error import *  # noqa: F403; This is limited to exception types.
+from av.utils import AVError
 from av.video.format import VideoFormat
 from av.video.frame import VideoFrame
-
-# Backwards compatibility
-AVError = FFmpegError  # noqa: F405

@@ -1,15 +1,7 @@
-from libc.stdint cimport (
-    uint8_t, int8_t,
-    uint16_t, int16_t,
-    uint32_t, int32_t,
-    uint64_t, int64_t
-)
+from libc.stdint cimport uint8_t, uint16_t, uint32_t, uint64_t, int64_t
 
 
-cdef extern from "libavcodec/avcodec.h" nogil:
-
-    # custom
-    cdef set pyav_get_available_codecs()
+cdef extern from "libavcodec/avcodec.pyav.h" nogil:
 
     cdef int   avcodec_version()
     cdef char* avcodec_configuration()
@@ -28,65 +20,33 @@ cdef extern from "libavcodec/avcodec.h" nogil:
 
     #AVCodec.capabilities
     cdef enum:
-        AV_CODEC_CAP_DRAW_HORIZ_BAND
-        AV_CODEC_CAP_DR1
-        AV_CODEC_CAP_TRUNCATED
-        # AV_CODEC_CAP_HWACCEL
-        AV_CODEC_CAP_DELAY
-        AV_CODEC_CAP_SMALL_LAST_FRAME
-        # AV_CODEC_CAP_HWACCEL_VDPAU
-        AV_CODEC_CAP_SUBFRAMES
-        AV_CODEC_CAP_EXPERIMENTAL
-        AV_CODEC_CAP_CHANNEL_CONF
-        # AV_CODEC_CAP_NEG_LINESIZES
-        AV_CODEC_CAP_FRAME_THREADS
-        AV_CODEC_CAP_SLICE_THREADS
-        AV_CODEC_CAP_PARAM_CHANGE
-        AV_CODEC_CAP_AUTO_THREADS
-        AV_CODEC_CAP_VARIABLE_FRAME_SIZE
-        AV_CODEC_CAP_AVOID_PROBING
-        AV_CODEC_CAP_INTRA_ONLY
-        AV_CODEC_CAP_LOSSLESS
-        AV_CODEC_CAP_HARDWARE
-        AV_CODEC_CAP_HYBRID
-        AV_CODEC_CAP_ENCODER_REORDERED_OPAQUE
+        CODEC_CAP_DRAW_HORIZ_BAND
+        CODEC_CAP_DR1
+        CODEC_CAP_TRUNCATED
+        CODEC_CAP_HWACCEL
+        CODEC_CAP_DELAY
+        CODEC_CAP_SMALL_LAST_FRAME
+        CODEC_CAP_HWACCEL_VDPAU
+        CODEC_CAP_SUBFRAMES
+        CODEC_CAP_EXPERIMENTAL
+        CODEC_CAP_CHANNEL_CONF
+        CODEC_CAP_NEG_LINESIZES
+        CODEC_CAP_FRAME_THREADS
+        CODEC_CAP_SLICE_THREADS
+        CODEC_CAP_PARAM_CHANGE
+        CODEC_CAP_AUTO_THREADS
+        CODEC_CAP_VARIABLE_FRAME_SIZE
+        CODEC_CAP_INTRA_ONLY
+        CODEC_CAP_LOSSLESS
 
     cdef enum:
         FF_THREAD_FRAME
         FF_THREAD_SLICE
 
     cdef enum:
-        AV_CODEC_FLAG_UNALIGNED
-        AV_CODEC_FLAG_QSCALE
-        AV_CODEC_FLAG_4MV
-        AV_CODEC_FLAG_OUTPUT_CORRUPT
-        AV_CODEC_FLAG_QPEL
-        AV_CODEC_FLAG_DROPCHANGED
-        AV_CODEC_FLAG_PASS1
-        AV_CODEC_FLAG_PASS2
-        AV_CODEC_FLAG_LOOP_FILTER
-        AV_CODEC_FLAG_GRAY
-        AV_CODEC_FLAG_PSNR
-        AV_CODEC_FLAG_TRUNCATED
-        AV_CODEC_FLAG_INTERLACED_DCT
-        AV_CODEC_FLAG_LOW_DELAY
         AV_CODEC_FLAG_GLOBAL_HEADER
-        AV_CODEC_FLAG_BITEXACT
-        AV_CODEC_FLAG_AC_PRED
-        AV_CODEC_FLAG_INTERLACED_ME
-        AV_CODEC_FLAG_CLOSED_GOP
-
-    cdef enum:
-        AV_CODEC_FLAG2_FAST
-        AV_CODEC_FLAG2_NO_OUTPUT
-        AV_CODEC_FLAG2_LOCAL_HEADER
-        AV_CODEC_FLAG2_DROP_FRAME_TIMECODE
-        AV_CODEC_FLAG2_CHUNKS
-        AV_CODEC_FLAG2_IGNORE_CROP
-        AV_CODEC_FLAG2_SHOW_ALL
-        AV_CODEC_FLAG2_EXPORT_MVS
-        AV_CODEC_FLAG2_SKIP_MANUAL
-        AV_CODEC_FLAG2_RO_FLUSH_NOOP
+        AV_CODEC_FLAG_QSCALE
+        AV_CODEC_FLAG_TRUNCATED
 
     cdef enum:
         AV_PKT_FLAG_KEY
@@ -156,8 +116,6 @@ cdef extern from "libavcodec/avcodec.h" nogil:
         AVCodecID codec_id
 
         int flags
-        int flags2
-
         int thread_count
         int thread_type
 
@@ -187,6 +145,8 @@ cdef extern from "libavcodec/avcodec.h" nogil:
         AVRational framerate
         AVRational time_base
         int ticks_per_frame
+
+        AVBufferRef *hw_frames_ctx
 
         int extradata_size
         uint8_t *extradata
@@ -258,32 +218,6 @@ cdef extern from "libavcodec/avcodec.h" nogil:
 
     cdef int AV_NUM_DATA_POINTERS
 
-    cdef enum AVFrameSideDataType:
-        AV_FRAME_DATA_PANSCAN
-        AV_FRAME_DATA_A53_CC
-        AV_FRAME_DATA_STEREO3D
-        AV_FRAME_DATA_MATRIXENCODING
-        AV_FRAME_DATA_DOWNMIX_INFO
-        AV_FRAME_DATA_REPLAYGAIN
-        AV_FRAME_DATA_DISPLAYMATRIX
-        AV_FRAME_DATA_AFD
-        AV_FRAME_DATA_MOTION_VECTORS
-        AV_FRAME_DATA_SKIP_SAMPLES
-        AV_FRAME_DATA_AUDIO_SERVICE_TYPE
-        AV_FRAME_DATA_MASTERING_DISPLAY_METADATA
-        AV_FRAME_DATA_GOP_TIMECODE
-        AV_FRAME_DATA_SPHERICAL
-        AV_FRAME_DATA_CONTENT_LIGHT_LEVEL
-        AV_FRAME_DATA_ICC_PROFILE
-        AV_FRAME_DATA_QP_TABLE_PROPERTIES
-        AV_FRAME_DATA_QP_TABLE_DATA
-
-    cdef struct AVFrameSideData:
-        AVFrameSideDataType type
-        uint8_t *data
-        int size
-        AVDictionary *metadata
-
     # See: http://ffmpeg.org/doxygen/trunk/structAVFrame.html
     cdef struct AVFrame:
         uint8_t *data[4];
@@ -298,9 +232,6 @@ cdef extern from "libavcodec/avcodec.h" nogil:
 
         int width
         int height
-
-        int nb_side_data
-        AVFrameSideData **side_data
 
         int nb_samples # Audio samples
         int sample_rate # Audio Sample rate
@@ -317,6 +248,7 @@ cdef extern from "libavcodec/avcodec.h" nogil:
         AVDictionary *metadata
         int flags
         int decode_error_flags
+        AVBufferRef *hw_frames_ctx
 
 
     cdef AVFrame* avcodec_alloc_frame()
@@ -439,12 +371,5 @@ cdef extern from "libavcodec/avcodec.h" nogil:
     )
     cdef void av_parser_close(AVCodecParserContext *s)
 
-
-    cdef struct AVCodecParameters:
-        pass
-
-    cdef int avcodec_parameters_from_context(
-        AVCodecParameters *par,
-        const AVCodecContext *codec,
-    )
-
+    # custom
+    cdef set pyav_get_available_codecs()

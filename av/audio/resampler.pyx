@@ -6,9 +6,8 @@ from av.audio.fifo cimport AudioFifo
 from av.audio.format cimport get_audio_format
 from av.audio.frame cimport alloc_audio_frame
 from av.audio.layout cimport get_audio_layout
-from av.error cimport err_check
-
-from av.error import FFmpegError
+from av.utils cimport err_check
+from av.utils import AVError
 
 
 cdef class AudioResampler(object):
@@ -55,9 +54,8 @@ cdef class AudioResampler(object):
         # Take source settings from the first frame.
         if not self.ptr:
 
-            # We don't have any input, so don't bother even setting up.
             if not frame:
-                return
+                raise ValueError('Cannot flush AudioResampler before it is used.')
 
             # Hold onto a copy of the attributes of the first frame to populate
             # output frames with.
@@ -101,7 +99,7 @@ cdef class AudioResampler(object):
                 err_check(lib.av_opt_set_int(self.ptr, 'in_sample_rate',     self.template.ptr.sample_rate, 0))
                 err_check(lib.av_opt_set_int(self.ptr, 'out_sample_rate',    self.rate, 0))
                 err_check(lib.swr_init(self.ptr))
-            except FFmpegError:
+            except AVError:
                 self.ptr = NULL
                 raise
 

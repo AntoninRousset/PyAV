@@ -1,8 +1,9 @@
 from libc.stdint cimport uint8_t
 
+from av.codec.context cimport HWFramesContext
 from av.deprecation import renamed_attr
-from av.enum cimport define_enum
-from av.error cimport err_check
+from av.enums cimport define_enum
+from av.utils cimport err_check
 from av.video.format cimport get_video_format, VideoFormat
 from av.video.plane cimport VideoPlane
 
@@ -19,15 +20,15 @@ cdef VideoFrame alloc_video_frame():
     return VideoFrame.__new__(VideoFrame, _cinit_bypass_sentinel)
 
 
-PictureType = define_enum('PictureType', __name__, (
-    ('NONE', lib.AV_PICTURE_TYPE_NONE, "Undefined"),
-    ('I', lib.AV_PICTURE_TYPE_I, "Intra"),
-    ('P', lib.AV_PICTURE_TYPE_P, "Predicted"),
-    ('B', lib.AV_PICTURE_TYPE_B, "Bi-directional predicted"),
-    ('S', lib.AV_PICTURE_TYPE_S, "S(GMC)-VOP MPEG-4"),
-    ('SI', lib.AV_PICTURE_TYPE_SI, "Switching intra"),
-    ('SP', lib.AV_PICTURE_TYPE_SP, "Switching predicted"),
-    ('BI', lib.AV_PICTURE_TYPE_BI, "BI type"),
+PictureType = define_enum('PictureType', (
+    ('NONE', lib.AV_PICTURE_TYPE_NONE),
+    ('I', lib.AV_PICTURE_TYPE_I),
+    ('P', lib.AV_PICTURE_TYPE_P),
+    ('B', lib.AV_PICTURE_TYPE_B),
+    ('S', lib.AV_PICTURE_TYPE_S),
+    ('SI', lib.AV_PICTURE_TYPE_SI),
+    ('SP', lib.AV_PICTURE_TYPE_SP),
+    ('BI', lib.AV_PICTURE_TYPE_BI),
 ))
 
 
@@ -62,8 +63,38 @@ cdef useful_array(VideoPlane plane, unsigned int bytes_per_pixel=1):
         arr = arr.reshape(-1, total_line_size)[:, 0:useful_line_size].reshape(-1)
     return arr
 
+cdef class VideoHWFrame(Frame):
+
+    def __cinit__(self, HWFramesContext hwframes_ctx, VideoFrame swframe):
+
+        self._init(hwframes_ctx.ptr, swframe.ptr)
+
+    cdef _init(self, lib.AVBufferRef *hwframes_ctx, lib.AVFrame *swframe):
+        
+        cdef int err = lib.av_hwframe_get_buffer(hwframes_ctx, self.ptr, 0)
+        if err < 0:
+            raise RuntimeError(f'Error code: {lib.av_err2str(err)}')
+        elif not self.ptr.hw_frames_ctx:
+            err = lib.AVERROR(lib.ENOMEM)
+            raise RuntimeError(f'Error code: {lib.av_err2str(err)}')
+
+        err = lib.av_hwframe_transfer_data(self.ptr, swframe, 0)
+        if err < 0:
+            raise RuntimeError(f'Error while transferring frame data to surface. Error code: {lib.av_err2str(err)}')
+
+    def __repr__(self):
+        return '<av.%s at 0x%x>' % (
+            self.__class__.__name__,
+            id(self),
+        )
 
 cdef class VideoFrame(Frame):
+
+    """A frame of video.
+
+    >>> frame = VideoFrame(1920, 1080, 'rgb24')
+
+    """
 
     def __cinit__(self, width=0, height=0, format='yuv420p'):
 
@@ -77,9 +108,6 @@ cdef class VideoFrame(Frame):
         self._init(c_format, width, height)
 
     cdef _init(self, lib.AVPixelFormat format, unsigned int width, unsigned int height):
-
-        cdef int res = 0
-
         with nogil:
             self.ptr.width = width
             self.ptr.height = height
@@ -90,17 +118,16 @@ cdef class VideoFrame(Frame):
             # We enforce aligned buffers, otherwise `sws_scale` can perform
             # poorly or even cause out-of-bounds reads and writes.
             if width and height:
-                res = lib.av_image_alloc(
+                ret = lib.av_image_alloc(
                     self.ptr.data,
                     self.ptr.linesize,
                     width,
                     height,
                     format,
                     16)
+                with gil:
+                    err_check(ret)
                 self._buffer = self.ptr.data[0]
-
-        if res:
-            err_check(res)
 
         self._init_user_attributes()
 
@@ -123,10 +150,157 @@ cdef class VideoFrame(Frame):
             id(self),
         )
 
+    def reformat(self, width=None, height=None, format=None, src_colorspace=None, dst_colorspace=None):
+        """reformat(width=None, height=None, format=None, src_colorspace=None, dst_colorspace=None)
+
+        Create a new :class:`VideoFrame` with the given width/height/format/colorspace.
+
+        :param int width: New width, or ``None`` for the same width.
+        :param int height: New height, or ``None`` for the same height.
+        :param str format: New format, or ``None`` for the same format; see :attr:`VideoFrame.format`.
+        :param str src_colorspace: Current colorspace.
+        :param str dst_colorspace: Desired colorspace.
+
+        Supported colorspaces are currently:
+            - ``'itu709'``
+            - ``'fcc'``
+            - ``'itu601'``
+            - ``'itu624'``
+            - ``'smpte240'``
+            - ``'default'`` or ``None``
+
+        """
+
+        cdef VideoFormat video_format = VideoFormat(format or self.format)
+
+        colorspace_flags = {
+            'itu709': lib.SWS_CS_ITU709,
+            'fcc': lib.SWS_CS_FCC,
+            'itu601': lib.SWS_CS_ITU601,
+            'itu624': lib.SWS_CS_SMPTE170M,
+            'smpte240': lib.SWS_CS_SMPTE240M,
+            'default': lib.SWS_CS_DEFAULT,
+            None: lib.SWS_CS_DEFAULT,
+        }
+        cdef int c_src_colorspace, c_dst_colorspace
+        try:
+            c_src_colorspace = colorspace_flags[src_colorspace]
+        except KeyError:
+            raise ValueError("Invalid src_colorspace %r" % src_colorspace)
+        try:
+            c_dst_colorspace = colorspace_flags[dst_colorspace]
+        except KeyError:
+            raise ValueError("Invalid dst_colorspace %r" % dst_colorspace)
+
+        return self._reformat(width or self.width, height or self.height, video_format.pix_fmt, c_src_colorspace, c_dst_colorspace)
+
+    cdef _reformat(self, int width, int height, lib.AVPixelFormat dst_format, int src_colorspace, int dst_colorspace):
+
+        if self.ptr.format < 0:
+            raise ValueError("Frame does not have format set.")
+
+        cdef lib.AVPixelFormat src_format = <lib.AVPixelFormat> self.ptr.format
+
+        # Shortcut!
+        if (
+            dst_format == src_format and
+            width == self.ptr.width and
+            height == self.ptr.height and
+            dst_colorspace == src_colorspace
+        ):
+            return self
+
+        # If we don't have a SwsContextProxy, create one.
+        if not self.reformatter:
+            self.reformatter = VideoReformatter()
+
+        # Try and reuse existing SwsContextProxy
+        # VideoStream.decode will copy its SwsContextProxy to VideoFrame
+        # So all Video frames from the same VideoStream should have the same one
+        with nogil:
+            self.reformatter.ptr = lib.sws_getCachedContext(
+                self.reformatter.ptr,
+                self.ptr.width,
+                self.ptr.height,
+                src_format,
+                width,
+                height,
+                dst_format,
+                lib.SWS_BILINEAR,
+                NULL,
+                NULL,
+                NULL
+            )
+
+        # We want to change the colorspace transforms. We do that by grabbing
+        # all of the current settings, changing a couple, and setting them all.
+        # We need a lot of state here.
+        cdef const int *inv_tbl
+        cdef const int *tbl
+        cdef int src_range, dst_range, brightness, contrast, saturation
+        cdef int ret
+        if src_colorspace != dst_colorspace:
+
+            with nogil:
+
+                # Casts for const-ness, because Cython isn't expressive enough.
+                ret = lib.sws_getColorspaceDetails(
+                    self.reformatter.ptr,
+                    <int**>&inv_tbl,
+                    &src_range,
+                    <int**>&tbl,
+                    &dst_range,
+                    &brightness,
+                    &contrast,
+                    &saturation
+                )
+
+            # I don't think this one can actually come up.
+            if ret < 0:
+                raise ValueError("Can't get colorspace of current format.")
+
+            with nogil:
+
+                # Grab the coefficients for the requested transforms.
+                # The inv_table brings us to linear, and `tbl` to the new space.
+                if src_colorspace != lib.SWS_CS_DEFAULT:
+                    inv_tbl = lib.sws_getCoefficients(src_colorspace)
+                if dst_colorspace != lib.SWS_CS_DEFAULT:
+                    tbl = lib.sws_getCoefficients(dst_colorspace)
+
+                # Apply!
+                ret = lib.sws_setColorspaceDetails(self.reformatter.ptr, inv_tbl, src_range, tbl, dst_range, brightness, contrast, saturation)
+
+            # This one can come up, but I'm not really sure in what scenarios.
+            if ret < 0:
+                raise ValueError("Can't set colorspace of current format.")
+
+        # Create a new VideoFrame.
+        cdef VideoFrame frame = alloc_video_frame()
+        frame._copy_internal_attributes(self)
+        frame._init(dst_format, width, height)
+
+        # Finally, scale the image.
+        with nogil:
+            lib.sws_scale(
+                self.reformatter.ptr,
+                # Cast for const-ness, because Cython isn't expressive enough.
+                <const uint8_t**>self.ptr.data,
+                self.ptr.linesize,
+                0,  # slice Y
+                self.ptr.height,
+                frame.ptr.data,
+                frame.ptr.linesize,
+            )
+
+        return frame
+
     @property
     def planes(self):
         """
-        A tuple of :class:`.VideoPlane` objects.
+        A tuple of :class:`~av.video.plane.VideoPlane` objects.
+
+        :type: tuple
         """
         # We need to detect which planes actually exist, but also contrain
         # ourselves to the maximum plane count (as determined only by VideoFrames
@@ -148,50 +322,25 @@ cdef class VideoFrame(Frame):
         def __get__(self): return self.ptr.height
 
     property key_frame:
-        """Is this frame a key frame?
-
-        Wraps :ffmpeg:`AVFrame.key_frame`.
-
-        """
+        """Is this frame a key frame?"""
         def __get__(self): return self.ptr.key_frame
 
     property interlaced_frame:
-        """Is this frame an interlaced or progressive?
-
-        Wraps :ffmpeg:`AVFrame.interlaced_frame`.
-
-        """
+        """Is this frame an interlaced or progressive?"""
         def __get__(self): return self.ptr.interlaced_frame
 
     @property
     def pict_type(self):
-        """One of :class:`.PictureType`.
-
-        Wraps :ffmpeg:`AVFrame.pict_type`.
-
-        """
         return PictureType.get(self.ptr.pict_type, create=True)
 
     @pict_type.setter
     def pict_type(self, value):
         self.ptr.pict_type = PictureType[value].value
 
-    def reformat(self, *args, **kwargs):
-        """reformat(width=None, height=None, format=None, src_colorspace=None, dst_colorspace=None, interpolation=None)
-
-        Create a new :class:`VideoFrame` with the given width/height/format/colorspace.
-
-        .. seealso:: :meth:`.VideoReformatter.reformat` for arguments.
-
-        """
-        if not self.reformatter:
-            self.reformatter = VideoReformatter()
-        return self.reformatter.reformat(self, *args, **kwargs)
-
     def to_rgb(self, **kwargs):
         """Get an RGB version of this frame.
 
-        Any ``**kwargs`` are passed to :meth:`.VideoReformatter.reformat`.
+        Any ``**kwargs`` are passed to :meth:`VideoFrame.reformat`.
 
         >>> frame = VideoFrame(1920, 1080)
         >>> frame.format.name
@@ -205,7 +354,7 @@ cdef class VideoFrame(Frame):
     def to_image(self, **kwargs):
         """Get an RGB ``PIL.Image`` of this frame.
 
-        Any ``**kwargs`` are passed to :meth:`.VideoReformatter.reformat`.
+        Any ``**kwargs`` are passed to :meth:`VideoFrame.reformat`.
 
         .. note:: PIL or Pillow must be installed.
 
@@ -232,7 +381,7 @@ cdef class VideoFrame(Frame):
     def to_ndarray(self, **kwargs):
         """Get a numpy array of this frame.
 
-        Any ``**kwargs`` are passed to :meth:`.VideoReformatter.reformat`.
+        Any ``**kwargs`` are passed to :meth:`VideoFrame.reformat`.
 
         .. note:: Numpy must be installed.
 
@@ -267,7 +416,7 @@ cdef class VideoFrame(Frame):
     @staticmethod
     def from_image(img):
         """
-        Construct a frame from a ``PIL.Image``.
+        Construct a frame from a `PIL.Image`.
         """
         if img.mode != 'RGB':
             img = img.convert('RGB')

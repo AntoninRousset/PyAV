@@ -5,7 +5,6 @@ import logging
 import os
 import sys
 
-
 try:
     from urllib.request import urlopen
 except ImportError:

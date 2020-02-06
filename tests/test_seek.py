@@ -4,6 +4,7 @@ import unittest
 import warnings
 
 import av
+from av import time_base as AV_TIME_BASE
 
 from .common import TestCase, fate_suite
 
@@ -108,7 +109,7 @@ class TestSeek(TestCase):
 
         # set target frame to middle frame
         target_frame = int(total_frame_count / 2.0)
-        target_timestamp = int((target_frame * av.time_base) / video_stream.rate)
+        target_timestamp = int((target_frame * AV_TIME_BASE) / video_stream.rate)
 
         # should seek to nearest keyframe before target_timestamp
         container.seek(target_timestamp)

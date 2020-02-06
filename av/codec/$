@@ -26,15 +26,13 @@ cdef HWDeviceContext wrap_hwdevice_context(lib.AVBufferRef *hwd_ctx, bint alloca
 
     return py_ctx
 
-cdef HWFramesContext wrap_hwframes_context(lib.AVBufferRef *hwf_ctx,
-                                           const lib.AVBufferRef *hwd_ctx,
-                                           bint allocated):
+cdef CodecContext wrap_hwframes_context(lib.AVHWFramesContext *hwf_ctx, const lib.AVHWDeviceContext *hwd_ctx, bint allocated):
     """Build an av.HWFramesContext for an existing AVHWFramesContext."""
 
     cdef HWFramesContext py_ctx = HWFramesContext()
 
     py_ctx.allocated = allocated
-    py_ctx._init(hwf_ctx)
+    py_ctx._init(hwf_ctx, hwd_ctx)
 
     return py_ctx
 
@@ -120,63 +118,16 @@ cdef class HWDeviceContext(object):
 cdef class HWFramesContext(object):
 
     @staticmethod
-    def create(hwd_ctx):
-        cdef HWDeviceContext cy_hwd_ctx = hwd_ctx
-        cdef lib.AVBufferRef *hwf_ctx = lib.av_hwframe_ctx_alloc(cy_hwd_ctx.ptr)
-        if hwf_ctx == NULL:
+    def create(hwdevice_ctx):
+        cdef lib.AVHWFramesContext *hwframes_ctx = av_hwframe_ctx_alloc(hwdevice_ctx.ptr)
+        if hwframes_ctx == NULL:
             raise RuntimeError('Failed to create VAAPI frame context.')
-        return wrap_hwframes_context(hwf_ctx, cy_hwd_ctx.ptr, True)
+        return wrap_hwframes_context(hwframes_ctx, hwdevice_ctx.ptr, True)
 
-    cdef _init(self, lib.AVBufferRef *ptr):
+    cdef _init(self, lib.AVHWFramesContext *ptr, const lib.AVHWDeviceContext *hwd_ctx):
         self.ptr = ptr
-        cdef lib.AVHWFramesContext *frames_ctx = <lib.AVHWFramesContext*>self.ptr.data
-
-    def __dealloc__(self):
-        if self.ptr and self.allocated:
-            lib.av_buffer_unref(&self.ptr)
-
-    cpdef init(self):
-        cdef int err = lib.av_hwframe_ctx_init(self.ptr)
-        if err < 0:
-            raise RuntimeError(f'Failed to initialize VAAPI frame context. Error code: {lib.av_err2str(err)}')
-
-    cdef lib.AVHWFramesContext* _get_hwframes_ctx(self):
-        return <lib.AVHWFramesContext*> self.ptr.data
-
-    property width:
-          def __get__(self):
-              return self._get_hwframes_ctx().width
-
-          def __set__(self, unsigned int value):
-              self._get_hwframes_ctx().width = value
-
-    property height:
-        def __get__(self):
-            return self._get_hwframes_ctx().height
-
-        def __set__(self, unsigned int value):
-              self._get_hwframes_ctx().height = value
-
-    property format:
-        def __get__(self):
-            return self._get_hwframes_ctx().format
-
-        def __set__(self, value):
-            self._get_hwframes_ctx().format = lib.av_get_pix_fmt(value)
-
-    property sw_format:
-        def __get__(self):
-            return self._get_hwframes_ctx().sw_format
-
-        def __set__(self, value):
-            self._get_hwframes_ctx().sw_format = lib.av_get_pix_fmt(value)
-
-    property initial_pool_size:
-        def __get__(self):
-            return self._get_hwframes_ctx().initial_pool_size
-
-        def __set__(self, value):
-            self._get_hwframes_ctx().initial_pool_size = value
+        if self.ptr.hwctx and hwd_ctx and self.ptr.hwctx != hwctx:
+            raise RuntimeError('Wrapping CodecContext with mismatched codec.')
 
 
 cdef class CodecContext(object):
@@ -205,6 +156,10 @@ cdef class CodecContext(object):
         # type == 2 -> thread within a frame. This does not change the API.
         self.ptr.thread_count = 0
         self.ptr.thread_type = 2
+
+    property hw_frames_ctx:
+        def __set__(self, HWDeviceContext hwdevice_ctx):
+            self.ptr.hw_frames_ctx = hwdevice_ctx.ptr
 
     property extradata:
         def __get__(self):
@@ -353,6 +308,8 @@ cdef class CodecContext(object):
         cdef int res
         with nogil:
             res = lib.avcodec_send_frame(self.ptr, frame.ptr if frame is not None else NULL)
+        err_check(res)
+
         out = []
         while True:
             packet = self._recv_packet()
@@ -380,9 +337,6 @@ cdef class CodecContext(object):
                 break
         return out
 
-    cdef _prepare_hwframes_for_encode(self, Frame frame):
-        return [frame]
-
     cdef _prepare_frames_for_encode(self, Frame frame):
         return [frame]
 
@@ -400,7 +354,7 @@ cdef class CodecContext(object):
             res = lib.avcodec_receive_frame(self.ptr, frame.ptr)
 
         if res == -EAGAIN or res == lib.AVERROR_EOF:
-            return 
+            return
         err_check(res)
 
         if not res:
@@ -408,12 +362,12 @@ cdef class CodecContext(object):
             return frame
 
     cdef _recv_packet(self):
+
         cdef Packet packet = Packet()
 
         cdef int res
         with nogil:
             res = lib.avcodec_receive_packet(self.ptr, &packet.struct)
-        print('received')
         if res == -EAGAIN or res == lib.AVERROR_EOF:
             return
         err_check(res)
@@ -429,7 +383,7 @@ cdef class CodecContext(object):
 
         self.open(strict=False)
 
-        frames = self._prepare_hwframes_for_encode(frame)
+        frames = self._prepare_frames_for_encode(frame)
 
         # Assert the frames are in our time base.
         # TODO: Don't mutate time.
@@ -440,10 +394,8 @@ cdef class CodecContext(object):
         res = []
         for frame in frames:
             for packet in self._send_frame_and_recv(frame):
-                print('packet!', packet)
                 self._setup_encoded_packet(packet)
                 res.append(packet)
-        print('done')
         return res
 
     cdef _setup_encoded_packet(self, Packet packet):
@@ -561,13 +513,3 @@ cdef class CodecContext(object):
 
         def __set__(self, value):
             self.ptr.skip_frame = SkipType[value].value
-
-    property hw_frames_ctx:
-        def __get__(self):
-            cdef HWFramesContext hwframes_ctx = HWFramesContext()
-            hwframes_ctx._init(self.ptr.hw_frames_ctx)
-            return hwframes_ctx
-
-        def __set__(self, HWFramesContext hwframes_ctx):
-            self.ptr.hw_frames_ctx = lib.av_buffer_ref(hwframes_ctx.ptr)
-

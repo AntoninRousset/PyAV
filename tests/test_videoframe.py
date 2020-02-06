@@ -1,5 +1,5 @@
-from unittest import SkipTest
 import warnings
+from unittest import SkipTest
 
 import numpy
 

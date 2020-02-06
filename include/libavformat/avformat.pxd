@@ -33,7 +33,6 @@ cdef extern from "libavformat/avformat.h" nogil:
         int id
 
         AVCodecContext *codec
-        AVCodecParameters *codecpar
 
         AVRational time_base
 
@@ -45,7 +44,6 @@ cdef extern from "libavformat/avformat.h" nogil:
         AVDictionary *metadata
 
         AVRational avg_frame_rate
-        AVRational r_frame_rate
         AVRational sample_aspect_ratio
 
     # http://ffmpeg.org/doxygen/trunk/structAVIOContext.html
@@ -56,11 +54,6 @@ cdef extern from "libavformat/avformat.h" nogil:
         int direct
         int seekable
         int max_packet_size
-
-    # http://ffmpeg.org/doxygen/trunk/structAVIOInterruptCB.html
-    cdef struct AVIOInterruptCB:
-        int (*callback)(void*)
-        void *opaque
 
     cdef int AVIO_FLAG_DIRECT
     cdef int AVIO_SEEKABLE_NORMAL
@@ -111,46 +104,18 @@ cdef extern from "libavformat/avformat.h" nogil:
         # const AVCodecTag* const *codec_tag
         const AVClass *priv_class
 
-    # AVInputFormat.flags and AVOutputFormat.flags
-    cdef enum:
-        AVFMT_NOFILE
-        AVFMT_NEEDNUMBER
-        AVFMT_SHOW_IDS
-        AVFMT_GLOBALHEADER
-        AVFMT_NOTIMESTAMPS
-        AVFMT_GENERIC_INDEX
-        AVFMT_TS_DISCONT
-        AVFMT_VARIABLE_FPS
-        AVFMT_NODIMENSIONS
-        AVFMT_NOSTREAMS
-        AVFMT_NOBINSEARCH
-        AVFMT_NOGENSEARCH
-        AVFMT_NO_BYTE_SEEK
-        AVFMT_ALLOW_FLUSH
-        AVFMT_TS_NONSTRICT
-        AVFMT_TS_NEGATIVE
-        AVFMT_SEEK_TO_PTS
-
-    # AVFormatContext.flags
-    cdef enum:
-        AVFMT_FLAG_GENPTS
-        AVFMT_FLAG_IGNIDX
-        AVFMT_FLAG_NONBLOCK
-        AVFMT_FLAG_IGNDTS
-        AVFMT_FLAG_NOFILLIN
-        AVFMT_FLAG_NOPARSE
-        AVFMT_FLAG_NOBUFFER
-        AVFMT_FLAG_CUSTOM_IO
-        AVFMT_FLAG_DISCARD_CORRUPT
-        AVFMT_FLAG_FLUSH_PACKETS
-        AVFMT_FLAG_BITEXACT
-        AVFMT_FLAG_MP4A_LATM
-        AVFMT_FLAG_SORT_DTS
-        AVFMT_FLAG_PRIV_OPT
-        AVFMT_FLAG_KEEP_SIDE_DATA  # deprecated; does nothing
-        AVFMT_FLAG_FAST_SEEK
-        AVFMT_FLAG_SHORTEST
-        AVFMT_FLAG_AUTO_BSF
+    cdef int AVFMT_NOFILE
+    cdef int AVFMT_NEEDNUMBER
+    cdef int AVFMT_RAWPICTURE
+    cdef int AVFMT_GLOBALHEADER
+    cdef int AVFMT_NOTIMESTAMPS
+    cdef int AVFMT_VARIABLE_FPS
+    cdef int AVFMT_NODIMENSIONS
+    cdef int AVFMT_NOSTREAMS
+    cdef int AVFMT_ALLOW_FLUSH
+    cdef int AVFMT_TS_NONSTRICT
+    cdef int AVFMT_FLAG_CUSTOM_IO
+    cdef int AVFMT_FLAG_GENPTS
 
     cdef int av_probe_input_buffer(
         AVIOContext *pb,
@@ -174,7 +139,6 @@ cdef extern from "libavformat/avformat.h" nogil:
         AVOutputFormat *oformat
 
         AVIOContext *pb
-        AVIOInterruptCB interrupt_callback
 
         AVDictionary *metadata
 
@@ -303,12 +267,6 @@ cdef extern from "libavformat/avformat.h" nogil:
         int flags
     )
 
-    cdef AVRational av_guess_frame_rate(
-        AVFormatContext *ctx,
-        AVStream *stream,
-        AVFrame *frame
-    )
-
     # custom
-
+    
     cdef set pyav_get_available_formats()

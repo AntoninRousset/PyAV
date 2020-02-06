@@ -29,6 +29,11 @@ cdef extern from "libavutil/avutil.h" nogil:
         AV_PIX_FMT_RGB24
         PIX_FMT_RGB24
         PIX_FMT_RGBA
+        AV_PIX_FMT_VAAPI
+        AV_PIX_FMT_VDPAU
+        AV_PIX_FMT_QSV
+        AV_PIX_FMT_CUDA
+        AV_PIX_FMT_XVMC
 
     cdef enum AVRounding:
         AV_ROUND_ZERO
@@ -39,8 +44,19 @@ cdef extern from "libavutil/avutil.h" nogil:
         # This is nice, but only in FFMpeg:
         # AV_ROUND_PASS_MINMAX
 
+    cdef int AV_ERROR_MAX_STRING_SIZE
+    cdef int AVERROR_EOF
+    cdef int AVERROR_NOMEM "AVERROR(ENOMEM)"
+
+    cdef int ENOMEM
+
+    cdef int EAGAIN
 
     cdef double M_PI
+
+    cdef int AVERROR(int error)
+    cdef int av_strerror(int errno, char *output, size_t output_size)
+    cdef char* av_err2str(int errnum)
 
     cdef void* av_malloc(size_t size)
     cdef void *av_calloc(size_t nmemb, size_t size)
@@ -121,10 +137,6 @@ cdef extern from "libavutil/pixdesc.h" nogil:
         AV_PIX_FMT_FLAG_HWACCEL
         AV_PIX_FMT_FLAG_PLANAR
         AV_PIX_FMT_FLAG_RGB
-        AV_PIX_FMT_FLAG_PSEUDOPAL
-        AV_PIX_FMT_FLAG_ALPHA
-        AV_PIX_FMT_FLAG_BAYER
-        AV_PIX_FMT_FLAG_FLOAT
 
     # See: http://ffmpeg.org/doxygen/trunk/structAVPixFmtDescriptor.html
     cdef struct AVPixFmtDescriptor:
@@ -141,8 +153,6 @@ cdef extern from "libavutil/pixdesc.h" nogil:
     cdef char * av_get_pix_fmt_name(AVPixelFormat pix_fmt)
     cdef AVPixelFormat av_get_pix_fmt(char* name)
 
-    int av_get_bits_per_pixel(AVPixFmtDescriptor *pixdesc)
-    int av_get_padded_bits_per_pixel(AVPixFmtDescriptor *pixdesc)
 
 
 
@@ -322,5 +332,4 @@ cdef extern from "libavutil/log.h" nogil:
 
     # Get the logs.
     ctypedef void(*av_log_callback)(void *, int, const char *, va_list)
-    void av_log_default_callback(void *, int, const char *, va_list)
     void av_log_set_callback (av_log_callback callback)

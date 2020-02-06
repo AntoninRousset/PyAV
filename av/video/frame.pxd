@@ -1,10 +1,14 @@
-from libc.stdint cimport uint8_t, uint16_t, int16_t, int32_t, uint64_t
+from libc.stdint cimport uint8_t
 
 cimport libav as lib
 
 from av.frame cimport Frame
 from av.video.format cimport VideoFormat
 from av.video.reformatter cimport VideoReformatter
+
+cdef class VideoHWFrame(Frame):
+
+    cdef _init(self, lib.AVBufferRef *hwframes_ctx, lib.AVFrame *swframe) 
 
 
 cdef class VideoFrame(Frame):
@@ -19,5 +23,8 @@ cdef class VideoFrame(Frame):
 
     cdef _init(self, lib.AVPixelFormat format, unsigned int width, unsigned int height)
     cdef _init_user_attributes(self)
+
+    cdef _reformat(self, int width, int height, lib.AVPixelFormat format, int src_colorspace, int dst_colorspace)
+
 
 cdef VideoFrame alloc_video_frame()

@@ -6,9 +6,9 @@ from av.codec.context cimport CodecContext
 from av.frame cimport Frame
 from av.packet cimport Packet
 from av.utils cimport avrational_to_fraction, to_avrational
-from av.error cimport err_check
+from av.utils cimport err_check
 from av.video.format cimport get_video_format, VideoFormat
-from av.video.frame cimport VideoFrame, alloc_video_frame
+from av.video.frame cimport VideoHWFrame, VideoFrame, alloc_video_frame
 from av.video.reformatter cimport VideoReformatter
 
 
@@ -27,6 +27,20 @@ cdef class VideoCodecContext(CodecContext):
         self.ptr.time_base.num = self.ptr.framerate.den or 1
         self.ptr.time_base.den = self.ptr.framerate.num or lib.AV_TIME_BASE
 
+    cdef _prepare_hwframes_for_encode(self, Frame input):
+
+        if not input:
+            return [None]
+
+        cdef VideoHWFrame vframe = VideoHWFrame(self.hw_frames_ctx, input)
+
+        if vframe.ptr.pts == lib.AV_NOPTS_VALUE:
+            vframe.ptr.pts = <int64_t>self.encoded_frame_count
+
+        self.encoded_frame_count += 1
+
+        return [vframe]
+
     cdef _prepare_frames_for_encode(self, Frame input):
 
         if not input:
@@ -34,19 +48,22 @@ cdef class VideoCodecContext(CodecContext):
 
         cdef VideoFrame vframe = input
 
+        if not self.reformatter:
+            self.reformatter = VideoReformatter()
+
         # Reformat if it doesn't match.
         if (
             vframe.format.pix_fmt != self._format.pix_fmt or
             vframe.width != self.ptr.width or
             vframe.height != self.ptr.height
         ):
-            if not self.reformatter:
-                self.reformatter = VideoReformatter()
-            vframe = self.reformatter.reformat(
-                vframe,
+            vframe.reformatter = self.reformatter
+            vframe = vframe._reformat(
                 self.ptr.width,
                 self.ptr.height,
-                self._format,
+                self._format.pix_fmt,
+                lib.SWS_CS_DEFAULT,
+                lib.SWS_CS_DEFAULT
             )
 
         # There is no pts, so create one.
